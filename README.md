@@ -1,112 +1,24 @@
 # Bangk-Shield
 
-Edge-based application layer honeypot untuk Cloudflare Workers. Mengintersep request mencurigakan (RCE, SSRF, SQLi, LFI, XSS, fuzzing/recon) di edge, sebelum sempat menyentuh origin server, lalu membalasnya dengan "roasting" bernuansa lokal dan fake payload — sambil tetap mencatat aktivitas serangan untuk dianalisis.
+
+Edge-based application layer honeypot untuk Cloudflare Workers. Mengintersep request mencurigakan (SQLi, RCE, SSRF, LFI, XSS, dan fuzzing/recon) di edge — sebelum sempat menyentuh origin server — lalu membalasnya dengan "roasting" bernuansa lokal dan fake payload, sambil tetap mencatat aktivitas serangan untuk dianalisis.
+
+---
 
 ## 1. Apa Ini Proyek Apa?
 
-Bangk-Shield adalah lapisan pertahanan ringan yang berjalan sepenuhnya di Cloudflare Workers/Pages — tanpa server tambahan, tanpa infrastruktur yang perlu dikelola. Alih-alih hanya memblokir request mencurigakan secara diam-diam, Bangk-Shield membalasnya dengan respons palsu yang meyakinkan (fake payload) sekaligus pesan roasting, dengan tujuan:
+Bangk-Shield adalah lapisan pertahanan ringan yang berjalan sepenuhnya di Cloudflare Workers — tanpa server tambahan, tanpa infrastruktur yang perlu dikelola. Alih-alih hanya memblokir request mencurigakan secara diam-diam, Bangk-Shield membalasnya dengan respons palsu yang meyakinkan (fake payload) sekaligus pesan roasting, dengan tiga tujuan:
 
-- **Bagi bot/scanner otomatis** (sqlmap, nuclei, ffuf, dll.) — membuat mereka percaya sedang menemukan celah, sehingga membuang waktu di jalur palsu (deception).
-- **Bagi attacker manual/pentester** — memberi sinyal jelas bahwa aktivitasnya sudah diketahui (deterrence).
-- **Bagi pemilik situs** — memberi visibilitas: siapa mencoba apa, kapan, dan seberapa serius (lewat log yang tersimpan, bukan cuma `console.log` yang hilang begitu saja).
+- **Bagi bot/scanner otomatis** (sqlmap, nuclei, ffuf, dll.) — membuat mereka percaya sedang menemukan celah, sehingga membuang waktu di jalur palsu (*deception*).
+- **Bagi attacker manual/pentester** — memberi sinyal jelas bahwa aktivitasnya sudah diketahui (*deterrence*).
+- **Bagi pemilik situs** — memberi visibilitas: siapa mencoba apa, kapan, dan seberapa serius, lewat log yang benar-benar tersimpan (bukan cuma `console.log` yang hilang begitu saja).
 
 Target pengguna: developer yang ingin trap keamanan ringan untuk portofolio/blog/side project, dan DevSecOps/sysadmin yang ingin lapisan deteksi recon di edge sebelum origin server.
 
-## 2. Apa yang Sudah Dibuat (Kode Inti)
+---
 
-Bagian **core engine** sudah selesai dan berada di `src/`:
+## 2. Struktur Proyek
 
-- **`src/index.js`** — otak dari Bangk-Shield:
-  - Routing utama (`fetch` handler) untuk setiap request yang masuk.
-  - Pengecekan whitelist berdasarkan path, ekstensi aset statis, dan IP.
-  - Pembacaan body request dengan batas ukuran (16 KB) supaya tidak jadi celah DoS, digabung dengan URL untuk diperiksa.
-  - Sistem skor (`evaluateThreat`) yang mengevaluasi request berdasarkan **keyword** dan **regex** per attack vector, baru memicu honeypot jika skor totalnya melewati threshold — bukan sekadar satu kata kunci cocok, untuk menekan false positive.
-  - Sanitasi data yang dipantulkan balik ke response (URL, User-Agent) — karakter kontrol dibuang, panjang dibatasi.
-  - Pemanggilan logging secara **non-blocking** (`ctx.waitUntil`) supaya pencatatan log tidak menambah latensi response ke penyerang.
-  - Header penanda `X-Bangk-Shield: honeypot-active` di setiap response honeypot, sebagai bukti bahwa ini jebakan bukan kerentanan nyata.
-  - Mekanisme **fail-open**: kalau terjadi error di manapun dalam engine, request tetap diteruskan ke origin, tidak pernah diblokir tanpa sengaja.
-
-- **`src/logger.js`** — modul pencatatan event serangan, dengan urutan prioritas backend:
-  1. Workers Analytics Engine (`env.BANGK_ANALYTICS`) — jika binding tersedia.
-  2. Workers KV (`env.BANGK_KV`) — fallback jika Analytics Engine tidak diaktifkan.
-  3. `console.log` — fallback terakhir (berguna saat development lokal dengan `wrangler dev`).
-
-Kedua file ini sudah mendokumentasikan sendiri **kontrak data** yang mereka harapkan dari file config (lihat komentar di bagian atas `index.js`), sehingga siapapun yang melanjutkan bisa mengisi config tanpa perlu membaca ulang seluruh logic.
-
-## 3. Apa yang Masih Harus Dilakukan
-
-Kode inti **tidak bergantung pada isi spesifik** file-file berikut — selama bentuknya sesuai kontrak di komentar `index.js`, tinggal drop-in tanpa mengubah logic engine.
-
-### 3.1 `config/scoring.json` (belum ada)
-Berisi threshold skor dan daftar attack vector beserta bobot, keyword, dan pattern regex.
-
-```json
-{
-  "threshold": 5,
-  "vectors": {
-    "SQLi": {
-      "weight": 5,
-      "keywords": ["union select", "' or 1=1", "sleep("],
-      "patterns": ["(\\%27)|(\\')|(\\-\\-)"]
-    },
-    "LFI": {
-      "weight": 4,
-      "keywords": ["../", "etc/passwd"],
-      "patterns": ["(\\.\\./){2,}"]
-    }
-  }
-}
-```
-> Vector lain yang perlu dilengkapi: **RCE, SSRF, XSS, Directory Fuzzing/Recon**.
-> Saat menulis `patterns`, hindari nested quantifier seperti `(a+)+` yang rawan ReDoS — cek dengan tool seperti `safe-regex` sebelum dimasukkan.
-
-### 3.2 `config/whitelist.json` (belum ada)
-Path dan IP yang dilewatkan langsung tanpa dicek honeypot.
-
-```json
-{
-  "paths": ["/api/health", "/favicon.ico"],
-  "ips": ["203.0.113.10"]
-}
-```
-
-### 3.3 `src/responses.json` (belum ada)
-Roast dan fake payload per attack vector — **key harus sama persis** dengan nama vector di `scoring.json`.
-
-```json
-{
-  "SQLi": {
-    "roast": "Union select-nya nyasar ke sini, bro.",
-    "payload": "status: query_blocked_by_waf"
-  },
-  "LFI": {
-    "roast": "../../.. nya kejauhan, ini bukan folder System32.",
-    "payload": "status: path_not_found"
-  }
-}
-```
-
-### 3.4 `wrangler.toml` (belum ada)
-Konfigurasi deployment Cloudflare Workers. Minimal perlu:
-- `main = "src/index.js"`
-- Format **modules** (bukan legacy service-worker), karena kode pakai `export default { fetch(...) }`.
-- `compatibility_date` yang sesuai.
-- Binding opsional (kode tetap jalan tanpa ini, lihat fallback di `logger.js`):
-  - `ASSETS` — untuk serve aset statis (Cloudflare Pages Functions).
-  - `BANGK_ANALYTICS` — Workers Analytics Engine binding.
-  - `BANGK_KV` — KV namespace binding.
-
-### 3.5 `package.json` (belum ada)
-Dependencies dasar untuk Wrangler (lihat §4 di bawah untuk contoh minimal).
-
-### 3.6 Testing sebelum deploy produksi
-- Uji dengan payload sungguhan (`sqlmap`, `nuclei`, manual curl) untuk memastikan threshold skor tidak terlalu sensitif (false positive) atau terlalu longgar (false negative).
-- Cek header `X-Bangk-Shield` benar-benar muncul di response honeypot dan tidak muncul di trafik legit.
-- Verifikasi log benar-benar tersimpan (cek dashboard Analytics Engine atau isi KV namespace).
-
-## 4. Cara Bikin & Jalankan
-
-### 4.1 Struktur folder akhir yang diharapkan
 ```text
 Bangk-Shield/
 ├── README.md
@@ -121,72 +33,146 @@ Bangk-Shield/
     └── responses.json
 ```
 
-### 4.2 Prasyarat
-- Node.js (versi LTS terbaru) dan npm terpasang.
-- Akun Cloudflare (gratis sudah cukup untuk mulai).
-- Wrangler CLI — tool resmi Cloudflare untuk develop & deploy Workers.
+---
 
-### 4.3 Setup awal
-```bash
-# 1. Install Wrangler sebagai dev dependency (atau global, sesuai preferensi)
-npm install -D wrangler
+## 3. Cara Kerja Engine (`src/index.js`)
 
-# 2. Login ke akun Cloudflare
-npx wrangler login
+Alur setiap request yang masuk ke Worker:
 
-# 3. Lengkapi config/scoring.json, config/whitelist.json, src/responses.json
-#    sesuai kontrak yang dijelaskan di §3, lalu buat wrangler.toml, contoh minimal:
-```
+1. **Cek whitelist** — path yang cocok ekstensi aset statis (`.js`, `.css`, `.svg`, dll.), path yang terdaftar di `config/whitelist.json`, atau IP klien yang terdaftar di sana → diteruskan langsung ke origin, tidak diperiksa.
+2. **Baca URL + body** — body request dibaca maksimal 16 KB pertama (`MAX_INSPECT_BYTES`) untuk mencegah request raksasa jadi vektor DoS terhadap Worker itu sendiri. URL dan body digabung jadi satu teks yang diperiksa.
+3. **Evaluasi skor** — teks tadi dicocokkan terhadap keyword dan regex tiap attack vector di `config/scoring.json`. Setiap vector yang cocok menambah skor sesuai bobotnya.
+4. **Bandingkan ke threshold** — kalau skor total ≥ `threshold` (saat ini `5`), honeypot aktif: response palsu dikirim balik beserta header `X-Bangk-Shield: honeypot-active`.
+5. **Log non-blocking** — event serangan dicatat lewat `ctx.waitUntil()` (lihat §7) supaya tidak menambah latensi response ke penyerang.
+6. **Kalau bukan serangan** — request diteruskan apa adanya ke origin/aset asli.
+7. **Fail-open** — kalau ada error apapun di titik manapun dalam proses ini, request tetap diteruskan ke origin. Bangk-Shield tidak pernah memblokir trafik karena bug internalnya sendiri.
 
-Contoh minimal `wrangler.toml`:
-```toml
-name = "bangk-shield"
-main = "src/index.js"
-compatibility_date = "2026-01-01"
+Data yang dipantulkan balik ke response (URL, User-Agent) sudah disanitasi — karakter kontrol dibuang dan panjangnya dibatasi 500 karakter — supaya tidak jadi celah log/response injection.
 
-# Opsional — aktifkan sesuai kebutuhan
-# [[kv_namespaces]]
-# binding = "BANGK_KV"
-# id = "isi-dengan-id-kv-namespace-anda"
+---
 
-# [[analytics_engine_datasets]]
-# binding = "BANGK_ANALYTICS"
-```
+## 4. Konfigurasi Deteksi (`config/scoring.json`)
 
-Contoh minimal `package.json`:
+Threshold saat ini: **5**. Bobot per attack vector didesain berjenjang, bukan flat, supaya vector yang risiko false-positive-nya tinggi butuh kombinasi sinyal, sementara vector yang sinyalnya sudah cukup spesifik bisa memicu sendirian:
+
+| Vector | Bobot | Bisa memicu sendirian? | Contoh keyword/pattern yang dicek |
+|---|---|---|---|
+| **SQLi** | 5 | Ya | `union select`, `or 1=1`, `sleep(`, `xp_cmdshell`, pattern `\bunion\s+select\b` |
+| **RCE** | 5 | Ya | `/bin/bash`, `exec(`, `eval(`, `wget http`, pattern `(;\|\|\|&&)\s*(cat\|ls\|whoami)` |
+| **SSRF** | 5 | Ya | `169.254.169.254`, `metadata.google.internal`, `file://`, `gopher://` |
+| **LFI** | 4 | Tidak (perlu tambahan sinyal) | `etc/passwd`, `php://filter`, pattern `(\.\./){2,}` |
+| **XSS** | 3 | Tidak | `<script`, `onerror=`, `document.cookie`, pattern `<\s*script[^>]*>` |
+| **Recon** | 2 | Tidak | `.env`, `.git/config`, `wp-admin`, `phpmyadmin`, `.htpasswd` |
+
+Semua regex ditulis sederhana (tanpa nested quantifier seperti `(a+)+`) untuk menghindari *catastrophic backtracking* (ReDoS), dan hanya dites terhadap teks yang sudah dibatasi 16 KB.
+
+> Daftar keyword/pattern lengkap ada langsung di `config/scoring.json` — tabel di atas hanya cuplikan.
+
+---
+
+## 5. Konfigurasi Whitelist (`config/whitelist.json`)
+
 ```json
 {
-  "name": "bangk-shield",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
-  },
-  "devDependencies": {
-    "wrangler": "^3.0.0"
-  }
+  "paths": ["/robots.txt", "/sitemap.xml", "/favicon.ico", "/api/health"],
+  "ips": []
 }
 ```
 
-### 4.4 Jalankan secara lokal
+Path-path umum yang wajar diakses siapa saja (robots, sitemap, favicon, health check) sudah dibebaskan dari pengecekan. Array `ips` sengaja dikosongkan — isi dengan IP kantor/tim/monitoring internal kalau perlu dikecualikan dari honeypot.
+
+---
+
+## 6. Respons Honeypot (`src/responses.json`)
+
+Setiap attack vector punya roast bernuansa lokal dan fake payload sendiri (7 entri: `SQLi`, `RCE`, `SSRF`, `LFI`, `XSS`, `Recon`, plus `Unknown Reconnaissance` sebagai fallback untuk vector yang belum terdefinisi). Contoh:
+
+```json
+"SQLi": {
+  "roast": "Union select nyasar ke lapak yang salah, bang...",
+  "payload": "MySQL error 1064: syntax intentionally malformed near 'FROM users'..."
+}
+```
+
+Setiap `payload` sengaja dibuat terlihat meyakinkan tapi **tidak mengandung info sensitif nyata apapun** (bukan versi software asli, bukan struktur file asli) — supaya aman kalau ter-screenshot dan tidak disalahartikan sebagai kebocoran beneran.
+
+---
+
+## 7. Logging (`src/logger.js`)
+
+Urutan prioritas backend logging, dipilih otomatis sesuai binding yang aktif di `wrangler.toml`:
+
+1. **Workers Analytics Engine** (`env.BANGK_ANALYTICS`) — kalau binding diaktifkan.
+2. **Workers KV** (`env.BANGK_KV`) — fallback kalau Analytics Engine tidak diaktifkan.
+3. **`console.log`** — fallback terakhir, terlihat lewat `wrangler tail` saat development lokal.
+
+Di versi beta ini, **kedua binding (KV & Analytics Engine) belum diaktifkan** di `wrangler.toml` — jadi log saat ini jalan lewat fallback `console.log`. Ini disengaja untuk tahap testing awal supaya tidak perlu setup Cloudflare tambahan dulu.
+
+---
+
+## 8. Konfigurasi Deployment (`wrangler.toml` & `package.json`)
+
+`wrangler.toml` saat ini:
+- `main = "src/index.js"`, `compatibility_date = "2026-01-01"`.
+- Belum ada `routes` — artinya kalau di-deploy sekarang, Worker akan aktif di subdomain `*.workers.dev` bawaan, bukan di domain kustom.
+- Binding `ASSETS`, `BANGK_KV`, `BANGK_ANALYTICS` masih dikomentari (nonaktif) — lihat §7.
+
+`package.json` menyediakan script:
+
+| Script | Fungsi |
+|---|---|
+| `npm run dev` | Jalankan Worker secara lokal via `wrangler dev` |
+| `npm run deploy` | Deploy ke akun Cloudflare |
+| `npm run tail` | Lihat log real-time (`wrangler tail`) |
+| `npm run kv:create` | Bikin KV namespace baru kalau nanti mau aktifkan `BANGK_KV` |
+
+---
+
+## 9. Cara Menjalankan
+
+### 9.1 Prasyarat
+- Node.js versi LTS terbaru dan npm.
+- Akun Cloudflare (tier gratis cukup).
+
+### 9.2 Install & login
+```bash
+npm install
+npx wrangler login
+```
+
+### 9.3 Jalankan lokal
 ```bash
 npm run dev
 ```
-Wrangler akan menjalankan Worker di `http://localhost:8787` (atau port lain yang ditampilkan di terminal). Coba akses dengan payload uji, misalnya:
-```bash
-curl "http://localhost:8787/?id=1' UNION SELECT 1--"
-```
-Kalau setup benar, response honeypot dengan header `X-Bangk-Shield: honeypot-active` akan muncul.
+Worker akan aktif di `http://localhost:8787` (atau port lain yang ditampilkan). Contoh uji coba:
 
-### 4.5 Deploy ke Cloudflare
+```bash
+# SQLi -> harusnya kena honeypot
+curl -i "http://localhost:8787/?id=1' UNION SELECT 1--"
+
+# LFI -> harusnya kena honeypot
+curl -i "http://localhost:8787/../../etc/passwd"
+
+# Recon -> sendirian belum cukup skor (weight 2 < threshold 5), harusnya LOLOS
+curl -i "http://localhost:8787/.env"
+
+# Trafik biasa -> harusnya lolos normal
+curl -i "http://localhost:8787/"
+```
+Response honeypot ditandai header `X-Bangk-Shield: honeypot-active`. Pantau log di terminal lain dengan `npm run tail`.
+
+### 9.4 Deploy
 ```bash
 npm run deploy
 ```
-Setelah deploy sukses, Wrangler akan menampilkan URL Worker (format `*.workers.dev`) atau domain kustom jika sudah dikonfigurasi di dashboard Cloudflare / `wrangler.toml`.
+Setelah sukses, Wrangler menampilkan URL Worker. Untuk pasang di depan domain yang sudah ada, isi bagian `routes` di `wrangler.toml` (lihat komentar di dalamnya) lalu deploy ulang.
 
-## 5. Roadmap Selanjutnya (Post-MVP)
+---
 
-- **Phase 2:** Migrasi log dari Analytics Engine/KV ke database terpusat (Cloudflare D1 / Supabase) untuk agregasi lintas domain.
+## 10. Roadmap Setelah Beta
+
+- **Phase 2:** Aktifkan `BANGK_ANALYTICS` atau `BANGK_KV`, lalu migrasi ke database terpusat (Cloudflare D1 / Supabase) untuk agregasi log lintas domain.
 - **Phase 3:** Alerting instan via Webhook (Discord/Telegram) untuk serangan skor tinggi.
 - **Phase 4:** Tombol "Deploy to Cloudflare" satu klik untuk adopsi developer lain.
+
+Penyesuaian bobot skor, pattern regex, dan isi roast/payload akan dilakukan berdasarkan hasil testing beta ini — dokumen ini akan diperbarui mengikuti perubahan tersebut.
