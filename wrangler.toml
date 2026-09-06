@@ -1,0 +1,68 @@
+# =============================================================================
+# Bangk-Shield — Cloudflare Workers configuration
+# Dokumentasi lengkap opsi: https://developers.cloudflare.com/workers/wrangler/configuration/
+# =============================================================================
+
+name = "bangk-shield"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Kode inti (src/index.js) pakai format ES Modules (`export default { fetch(...) }`),
+# jadi TIDAK perlu `compatibility_flags` khusus untuk itu. Baris di bawah ini
+# hanya contoh jika suatu saat butuh Node.js API tertentu di dalam Worker:
+# compatibility_flags = ["nodejs_compat"]
+
+# -----------------------------------------------------------------------------
+# ROUTING — pilih SALAH SATU cara Bangk-Shield "dipasang" di depan trafik asli:
+# -----------------------------------------------------------------------------
+
+# OPSI A (paling umum untuk honeypot): pasang Worker di depan situs yang sudah
+# ada di zona Cloudflare Anda. Ganti "yourdomain.com" dan sesuaikan pattern-nya.
+# Origin asli tetap dituju lewat fetch(request) biasa di dalam index.js.
+#
+# routes = [
+#   { pattern = "yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]
+
+# OPSI B: deploy sebagai subdomain workers.dev bawaan untuk testing cepat
+# (tidak perlu apa-apa di sini — otomatis aktif kalau `routes` di atas dikosongkan
+# dan tidak ada custom domain, lalu jalankan `wrangler deploy`).
+
+# -----------------------------------------------------------------------------
+# STATIC ASSETS (opsional) — isi HANYA jika Bangk-Shield juga bertugas serve
+# aset statis situsnya sendiri (mis. dipakai di Cloudflare Pages Functions
+# atau Workers Static Assets). Kalau Bangk-Shield murni "penjaga di depan"
+# origin server terpisah (Opsi A di atas), bagian ini TIDAK diperlukan —
+# passthrough di index.js akan fetch ke origin asli, bukan ke sini.
+# -----------------------------------------------------------------------------
+
+# [assets]
+# directory = "./public"
+# binding = "ASSETS"
+
+# -----------------------------------------------------------------------------
+# LOGGING BACKEND (opsional, tapi disarankan salah satu) — dipakai src/logger.js.
+# Tanpa keduanya, logger.js otomatis fallback ke console.log (lihat `wrangler tail`).
+# -----------------------------------------------------------------------------
+
+# Workers KV — fallback sederhana, cukup untuk MVP kecil.
+# Buat namespace dulu: `npx wrangler kv namespace create BANGK_KV`
+# lalu isi "id" di bawah dengan output dari perintah tersebut.
+#
+# [[kv_namespaces]]
+# binding = "BANGK_KV"
+# id = "isi-dengan-id-kv-namespace-anda"
+
+# Workers Analytics Engine — cocok untuk volume event tinggi, gratis, native.
+# Aktifkan dulu Analytics Engine di dashboard Cloudflare akun Anda.
+#
+# [[analytics_engine_datasets]]
+# binding = "BANGK_ANALYTICS"
+# dataset = "bangk_shield_events"
+
+# -----------------------------------------------------------------------------
+# ENVIRONMENT VARIABLES (opsional) — contoh kalau nanti perlu toggle mode, dsb.
+# -----------------------------------------------------------------------------
+
+# [vars]
+# ENVIRONMENT = "production"
