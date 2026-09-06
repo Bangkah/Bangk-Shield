@@ -1,0 +1,9 @@
+{
+  "paths": [
+    "/robots.txt",
+    "/sitemap.xml",
+    "/favicon.ico",
+    "/api/health"
+  ],
+  "ips": []
+}

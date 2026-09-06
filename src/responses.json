@@ -1,0 +1,30 @@
+{
+  "SQLi": {
+    "roast": "Union select nyasar ke lapak yang salah, bang. Di sini nggak ada tabel users buat di-dump, adanya tabel sabar.",
+    "payload": "MySQL error 1064: syntax intentionally malformed near 'FROM users' — query blocked at edge (WAF rule: sqli-heuristic-04). No rows returned."
+  },
+  "RCE": {
+    "roast": "Coba-coba nembak reverse shell? Port-nya kebuka tapi isinya cuma kaleng kerupuk kosong, mas.",        
+    "payload": "/bin/sh: command execution disabled in sandboxed environment. Process exited with code 127 (command not found)."
+  },
+  "SSRF": {
+    "roast": "Mau nyuruh server ini manggil-manggil metadata internal? Sayangnya dia introvert, nggak mau nelpon siapa-siapa.",
+    "payload": "Outbound request blocked: destination host resolves to internal range (169.254.0.0/16). Request terminated by egress policy."
+  },
+  "LFI": {
+    "roast": "../../.. nya kejauhan jalan, ini server bukan folder System32 tetangga sebelah.",
+    "payload": "fopen() failed: 'No such file or directory' — path traversal outside webroot is not permitted."
+  },
+  "XSS": {
+    "roast": "Script tag-nya ganteng, tapi CSP di sini strict banget, alert('1') nya dibuang ke tong sampah.",
+    "payload": "Content-Security-Policy violation logged: inline script blocked, nonce mismatch. Payload sanitized before render."
+  },
+  "Recon": {
+    "roast": "Lagi ngintip-ngintip direktori ya? Sayang banget, /admin, /.env, sama /backup.zip cuma jebakan betmen di sini.",
+    "payload": "HTTP 404: resource map randomized per session. Directory listing has been disabled since 2019."
+  },
+  "Unknown Reconnaissance": {
+    "roast": "Polanya asing, tapi niatnya kelihatan jelas. Kreatif juga nyoba yang belum ada di database roast kami.",
+    "payload": "status: unrecognized_pattern_logged_for_review"
+  }
+}
