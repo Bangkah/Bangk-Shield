@@ -1,5 +1,7 @@
 # Bangk-Shield
 
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Bangkah/Bangk-Shield)
+
 **Status: Beta — menggantikan versi sebelumnya sepenuhnya.** Bukan iterasi tambahan, tapi rewrite arsitektur: rule engine dipindah ke build pipeline terkompilasi, ditambah circuit breaker, watermark kriptografis, dan logging dengan sampling.
 
 Edge-based application layer honeypot untuk Cloudflare Workers. Mengintersep request mencurigakan (SQLi, RCE, SSRF, LFI, XSS, recon) di edge, membalas dengan roast lokal + fake payload yang meyakinkan, dan mencatat aktivitas serangan secara persisten.
