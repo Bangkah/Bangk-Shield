@@ -1,0 +1,134 @@
+{
+  "global": {
+    "body_scan_limit_bytes": 16384,
+    "score_threshold": 50
+  },
+  "vectors": [
+    {
+      "id": "sqli",
+      "enabled": true,
+      "default_fake_status": 200,
+      "signals": [
+        { "pattern": "union\\s+select", "where": ["path", "query", "body"], "score": 60 },
+        { "pattern": "\\bor\\s+1\\s*=\\s*1\\b", "where": ["path", "query", "body"], "score": 55 },
+        { "pattern": "sleep\\(|benchmark\\(|waitfor\\s+delay", "where": ["path", "query", "body"], "score": 55 },
+        { "pattern": "information_schema|xp_cmdshell", "where": ["path", "query", "body"], "score": 55 },
+        { "pattern": "(%27)|(\\-\\-\\s)", "where": ["query", "body"], "score": 25 }
+      ],
+      "roast": [
+        "Union select nyasar ke lapak yang salah, bang. Di sini nggak ada tabel users buat di-dump.",
+        "Query-nya kreatif, tapi database beneran ada di dimensi lain, bro."
+      ],
+      "fake_payload": {
+        "delay_ms": [150, 400],
+        "body": { "error": "MySQL 1064", "detail": "syntax error near 'FROM users'", "rows_returned": 0 }
+      }
+    },
+    {
+      "id": "rce",
+      "enabled": true,
+      "default_fake_status": 200,
+      "signals": [
+        { "pattern": "\\b(exec|system|passthru|eval|shell_exec)\\s*\\(", "where": ["path", "query", "body"], "score": 60 },
+        { "pattern": "/bin/(bash|sh)\\b", "where": ["path", "query", "body"], "score": 55 },
+        { "pattern": "\\b(wget|curl)\\s+https?://", "where": ["query", "body"], "score": 50 },
+        { "pattern": "(;|\\||&&)\\s*(cat|ls|whoami|id|uname)\\b", "where": ["path", "query", "body"], "score": 55 },
+        { "pattern": "base64_decode\\(", "where": ["query", "body"], "score": 30 }
+      ],
+      "roast": [
+        "Coba-coba nembak reverse shell? Port-nya kebuka tapi isinya kaleng kerupuk kosong, mas.",
+        "/bin/bash kamu nyasar, ini bukan terminal beneran."
+      ],
+      "fake_payload": {
+        "delay_ms": [150, 400],
+        "body": { "error": "command_not_found", "exit_code": 127, "shell": "/bin/sh" }
+      }
+    },
+    {
+      "id": "ssrf",
+      "enabled": true,
+      "default_fake_status": 200,
+      "signals": [
+        { "pattern": "169\\.254\\.169\\.254", "where": ["path", "query", "body"], "score": 60 },
+        { "pattern": "metadata\\.google\\.internal", "where": ["path", "query", "body"], "score": 60 },
+        { "pattern": "\\b(file|gopher|dict)://", "where": ["query", "body"], "score": 55 },
+        { "pattern": "\\b(localhost|127\\.0\\.0\\.1)[:/]", "where": ["query", "body"], "score": 30 }
+      ],
+      "roast": [
+        "Mau nyuruh server manggil metadata internal? Sayangnya dia introvert, mas.",
+        "SSRF ke 169.254.169.254? Itu IP khayalan di jaringan ini."
+      ],
+      "fake_payload": {
+        "delay_ms": [150, 400],
+        "body": { "error": "egress_blocked", "reason": "destination in internal range" }
+      }
+    },
+    {
+      "id": "lfi",
+      "enabled": true,
+      "default_fake_status": 200,
+      "signals": [
+        { "pattern": "etc/passwd|boot\\.ini|win\\.ini", "where": ["path", "query", "body"], "score": 50 },
+        { "pattern": "php://(filter|input)", "where": ["path", "query", "body"], "score": 50 },
+        { "pattern": "/proc/self/environ", "where": ["path", "query", "body"], "score": 50 },
+        { "pattern": "(\\.\\./){2,}", "where": ["path", "query", "body"], "score": 35 }
+      ],
+      "combo_bonus": [
+        { "if_all": ["lfi:0", "lfi:3"], "add": 15 }
+      ],
+      "roast": [
+        "../../.. nya kejauhan jalan, ini bukan folder System32 tetangga.",
+        "etc/passwd yang dicari cuma ada di komputer situ, bang."
+      ],
+      "fake_payload": {
+        "delay_ms": [100, 300],
+        "body": { "error": "fopen_failed", "reason": "path traversal outside webroot" }
+      }
+    },
+    {
+      "id": "xss",
+      "enabled": true,
+      "default_fake_status": 200,
+      "signals": [
+        { "pattern": "<\\s*script[^>]*>", "where": ["path", "query", "body"], "score": 35 },
+        { "pattern": "on(error|load)\\s*=\\s*[\"']", "where": ["path", "query", "body"], "score": 30 },
+        { "pattern": "document\\.cookie", "where": ["path", "query", "body"], "score": 30 },
+        { "pattern": "javascript:", "where": ["path", "query", "body"], "score": 25 }
+      ],
+      "combo_bonus": [
+        { "if_all": ["xss:0", "xss:2"], "add": 15 }
+      ],
+      "roast": [
+        "Script tag-nya ganteng, tapi CSP di sini strict banget.",
+        "alert('1') nya dibuang ke tong sampah, coba lagi."
+      ],
+      "fake_payload": {
+        "delay_ms": [100, 300],
+        "body": { "error": "csp_violation", "action": "inline_script_blocked" }
+      }
+    },
+    {
+      "id": "recon",
+      "enabled": true,
+      "default_fake_status": 200,
+      "signals": [
+        { "pattern": "\\.env(\\b|$)", "where": ["path"], "score": 25 },
+        { "pattern": "\\.git/config", "where": ["path"], "score": 25 },
+        { "pattern": "wp-admin|phpmyadmin", "where": ["path"], "score": 20 },
+        { "pattern": "backup\\.zip|config\\.php\\.bak|\\.htpasswd", "where": ["path"], "score": 25 },
+        { "pattern": "server-status", "where": ["path"], "score": 20 }
+      ],
+      "combo_bonus": [
+        { "if_all": ["recon:0", "recon:2"], "add": 20 }
+      ],
+      "roast": [
+        "Lagi ngintip-ngintip direktori ya? /admin, /.env, /backup.zip cuma jebakan betmen di sini.",
+        "Directory listing sudah dimatikan sejak 2019, bang."
+      ],
+      "fake_payload": {
+        "delay_ms": [100, 300],
+        "body": { "error": "not_found", "note": "resource map randomized per session" }
+      }
+    }
+  ]
+}

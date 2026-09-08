@@ -1,9 +1,5 @@
 {
-  "paths": [
-    "/robots.txt",
-    "/sitemap.xml",
-    "/favicon.ico",
-    "/api/health"
-  ],
+  "paths": ["/robots.txt", "/sitemap.xml", "/favicon.ico", "/api/health"],
+  "prefixes": ["/assets/", "/static/"],
   "ips": []
 }

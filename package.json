@@ -6,13 +6,18 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "build:rules": "node scripts/build-rules.cjs",
+    "predev": "npm run build:rules",
     "dev": "wrangler dev",
+    "predeploy": "npm run build:rules",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
-    "kv:create": "wrangler kv namespace create BANGK_KV"
+    "kv:create": "wrangler kv namespace create BANGK_KV",
+    "salt:rotate": "node scripts/rotate-salt.cjs"
   },
   "devDependencies": {
-    "wrangler": "^4.129.0"
+    "ajv": "^8.17.1",
+    "wrangler": "^3.90.0"
   },
   "engines": {
     "node": ">=18"

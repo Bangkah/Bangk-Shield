@@ -1,39 +1,33 @@
 /**
- * Bangk-Shield Logger
- * Abstraksi logging supaya event honeypot tidak hilang begitu saja (console.log
- * di Cloudflare Workers bersifat ephemeral tanpa Logpush/Tail aktif).
+ * Bangk-Shield Logger (Best-Effort Analytics)
+ * Menulis event serangan ke Workers Analytics Engine. API ini fire-and-forget,
+ * jadi kegagalan penulisan (kuota habis, dsb.) TIDAK BOLEH mengganggu response
+ * ke klien -- selalu dipanggil lewat ctx.waitUntil() oleh index.js.
  *
- * Prioritas backend (dipakai yang tersedia di `env`, tanpa perlu diubah di index.js):
- * 1. Workers Analytics Engine (binding: env.BANGK_ANALYTICS) - cocok untuk volume tinggi.
- * 2. Workers KV (binding: env.BANGK_KV) - fallback sederhana, cukup untuk MVP kecil.
- * 3. console.log - fallback terakhir jika tidak ada binding sama sekali (mis. saat dev lokal).
+ * Sampling: event dengan skor rendah (di bawah SAMPLING_SCORE_THRESHOLD)
+ * di-sampling sebagian saja untuk menghemat kuota harian paket gratis,
+ * sesuai PRD §3.5.
  */
 
-export async function logEvent(env, data) {
+const SAMPLING_SCORE_THRESHOLD = 30;
+const SAMPLING_RATE = 0.2; // 20% dari event skor rendah yang benar-benar ditulis
+
+export async function logEventBestEffort(env, event) {
+  if (!env || !env.BANGK_ANALYTICS) return;
+
+  const isLowScore = typeof event.score === 'number' && event.score < SAMPLING_SCORE_THRESHOLD;
+  const dropped = isLowScore && Math.random() > SAMPLING_RATE;
+  if (dropped) return; // dilewati karena sampling, bukan error
+
   try {
-    if (env && env.BANGK_ANALYTICS && typeof env.BANGK_ANALYTICS.writeDataPoint === 'function') {
-      env.BANGK_ANALYTICS.writeDataPoint({
-        blobs: [data.ip, data.path, data.attackType, data.userAgent],
-        doubles: [data.score],
-        indexes: [data.attackType],
-      });
-      return;
-    }
-
-    if (env && env.BANGK_KV) {
-      // Key unik per event supaya tidak saling menimpa: timestamp + random suffix
-      const key = `event:${data.timestamp}:${Math.random().toString(36).slice(2, 8)}`;
-      await env.BANGK_KV.put(key, JSON.stringify(data), {
-        // Simpan 30 hari saja secara default supaya KV tidak membengkak tanpa batas
-        expirationTtl: 60 * 60 * 24 * 30,
-      });
-      return;
-    }
-
-    // Fallback terakhir: minimal masih terlihat di `wrangler tail` saat development
-    console.log('[BANGK-SHIELD LOG]', JSON.stringify(data));
-  } catch (error) {
-    // Logging tidak boleh pernah menggagalkan request utama
-    console.error('[BANGK-SHIELD LOGGER ERROR]', error);
+    env.BANGK_ANALYTICS.writeDataPoint({
+      blobs: [event.ip || '', event.path || '', event.vector || '', String(Boolean(dropped))],
+      doubles: [typeof event.score === 'number' ? event.score : 0],
+      indexes: [event.vector || 'unknown'],
+    });
+  } catch (err) {
+    // Fire-and-forget: catat kegagalan di console (terlihat lewat `wrangler tail`),
+    // tapi jangan lempar error ke pemanggil.
+    console.error('[BANGK-SHIELD LOGGER] Analytics write failed:', err);
   }
 }
