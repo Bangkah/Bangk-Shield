@@ -205,6 +205,6 @@ npm run deploy
 
 ## 11. Roadmap
 
-- Implementasi admin dashboard (PRD Beta §3.7) + integrasi Cloudflare Access.
-- Micro-benchmark CPU time untuk memverifikasi NFR §5 PRD Beta secara kuantitatif.
+- Implementasi admin dashboard + integrasi Cloudflare Access.
+- Micro-benchmark CPU time untuk memverifikasi NFR PRD Beta secara kuantitatif.
 - Evaluasi migrasi circuit breaker dari KV ke Durable Objects kalau presisi rate limit jadi kebutuhan nyata.

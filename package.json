@@ -1,12 +1,25 @@
 {
   "name": "bangk-shield",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Edge-based application layer honeypot for Cloudflare Workers.",
+  "version": "0.1.0-beta",
+  "description": "Edge-based application layer honeypot and security middleware for Cloudflare Workers.",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "config/rules.json",
+    "src"
+  ],
   "scripts": {
     "build:rules": "node scripts/build-rules.cjs",
+    "prebuild": "npm run build:rules",
+    "build": "tsup publish/index.ts --format esm --dts --clean",
     "predev": "npm run build:rules",
     "dev": "wrangler dev",
     "predeploy": "npm run build:rules",
@@ -15,16 +28,23 @@
     "kv:create": "wrangler kv namespace create BANGK_KV",
     "salt:rotate": "node scripts/rotate-salt.cjs"
   },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
   "devDependencies": {
-    "ajv": "^8.17.1",
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.3",
     "wrangler": "^3.90.0"
   },
   "engines": {
     "node": ">=18"
   },
-  "allowScripts": {
-    "esbuild@0.17.19": true,
-    "workerd@1.20250718.0": true,
-    "sharp@0.33.5": true
+  "publishConfig": {
+  "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bangkah/Bangk-Shield.git"
   }
 }
