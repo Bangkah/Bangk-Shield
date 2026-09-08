@@ -1,18 +1,21 @@
 {
-  "_generated_at": "2026-09-08T03:04:22.178Z",
-  "_generated_from": "config/rules.json",
+  "_meta": {
+    "built_at": "2026-09-08T03:42:00.995Z",
+    "source": "config/rules.json",
+    "version": 1
+  },
   "global": {
-    "body_scan_limit_bytes": 16384,
-    "score_threshold": 50
+    "score_threshold": 50,
+    "body_scan_limit_bytes": 16384
   },
   "vectors": [
     {
       "id": "sqli",
       "enabled": true,
-      "default_fake_status": 200,
       "signals": [
         {
           "pattern": "union\\s+select",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -22,6 +25,7 @@
         },
         {
           "pattern": "\\bor\\s+1\\s*=\\s*1\\b",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -31,6 +35,7 @@
         },
         {
           "pattern": "sleep\\(|benchmark\\(|waitfor\\s+delay",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -40,6 +45,7 @@
         },
         {
           "pattern": "information_schema|xp_cmdshell",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -49,6 +55,7 @@
         },
         {
           "pattern": "(%27)|(\\-\\-\\s)",
+          "flags": "i",
           "where": [
             "query",
             "body"
@@ -56,10 +63,12 @@
           "score": 25
         }
       ],
+      "combo_bonus": [],
       "roast": [
         "Union select nyasar ke lapak yang salah, bang. Di sini nggak ada tabel users buat di-dump.",
         "Query-nya kreatif, tapi database beneran ada di dimensi lain, bro."
       ],
+      "default_fake_status": 200,
       "fake_payload": {
         "delay_ms": [
           150,
@@ -75,10 +84,10 @@
     {
       "id": "rce",
       "enabled": true,
-      "default_fake_status": 200,
       "signals": [
         {
           "pattern": "\\b(exec|system|passthru|eval|shell_exec)\\s*\\(",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -88,6 +97,7 @@
         },
         {
           "pattern": "/bin/(bash|sh)\\b",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -97,6 +107,7 @@
         },
         {
           "pattern": "\\b(wget|curl)\\s+https?://",
+          "flags": "i",
           "where": [
             "query",
             "body"
@@ -105,6 +116,7 @@
         },
         {
           "pattern": "(;|\\||&&)\\s*(cat|ls|whoami|id|uname)\\b",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -114,6 +126,7 @@
         },
         {
           "pattern": "base64_decode\\(",
+          "flags": "i",
           "where": [
             "query",
             "body"
@@ -121,10 +134,12 @@
           "score": 30
         }
       ],
+      "combo_bonus": [],
       "roast": [
         "Coba-coba nembak reverse shell? Port-nya kebuka tapi isinya kaleng kerupuk kosong, mas.",
         "/bin/bash kamu nyasar, ini bukan terminal beneran."
       ],
+      "default_fake_status": 200,
       "fake_payload": {
         "delay_ms": [
           150,
@@ -140,10 +155,10 @@
     {
       "id": "ssrf",
       "enabled": true,
-      "default_fake_status": 200,
       "signals": [
         {
           "pattern": "169\\.254\\.169\\.254",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -153,6 +168,7 @@
         },
         {
           "pattern": "metadata\\.google\\.internal",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -162,6 +178,7 @@
         },
         {
           "pattern": "\\b(file|gopher|dict)://",
+          "flags": "i",
           "where": [
             "query",
             "body"
@@ -170,6 +187,7 @@
         },
         {
           "pattern": "\\b(localhost|127\\.0\\.0\\.1)[:/]",
+          "flags": "i",
           "where": [
             "query",
             "body"
@@ -177,10 +195,12 @@
           "score": 30
         }
       ],
+      "combo_bonus": [],
       "roast": [
         "Mau nyuruh server manggil metadata internal? Sayangnya dia introvert, mas.",
         "SSRF ke 169.254.169.254? Itu IP khayalan di jaringan ini."
       ],
+      "default_fake_status": 200,
       "fake_payload": {
         "delay_ms": [
           150,
@@ -195,10 +215,10 @@
     {
       "id": "lfi",
       "enabled": true,
-      "default_fake_status": 200,
       "signals": [
         {
           "pattern": "etc/passwd|boot\\.ini|win\\.ini",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -208,6 +228,7 @@
         },
         {
           "pattern": "php://(filter|input)",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -217,6 +238,7 @@
         },
         {
           "pattern": "/proc/self/environ",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -226,6 +248,7 @@
         },
         {
           "pattern": "(\\.\\./){2,}",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -247,6 +270,7 @@
         "../../.. nya kejauhan jalan, ini bukan folder System32 tetangga.",
         "etc/passwd yang dicari cuma ada di komputer situ, bang."
       ],
+      "default_fake_status": 200,
       "fake_payload": {
         "delay_ms": [
           100,
@@ -261,10 +285,10 @@
     {
       "id": "xss",
       "enabled": true,
-      "default_fake_status": 200,
       "signals": [
         {
           "pattern": "<\\s*script[^>]*>",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -274,6 +298,7 @@
         },
         {
           "pattern": "on(error|load)\\s*=\\s*[\"']",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -283,6 +308,7 @@
         },
         {
           "pattern": "document\\.cookie",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -292,6 +318,7 @@
         },
         {
           "pattern": "javascript:",
+          "flags": "i",
           "where": [
             "path",
             "query",
@@ -313,6 +340,7 @@
         "Script tag-nya ganteng, tapi CSP di sini strict banget.",
         "alert('1') nya dibuang ke tong sampah, coba lagi."
       ],
+      "default_fake_status": 200,
       "fake_payload": {
         "delay_ms": [
           100,
@@ -327,10 +355,10 @@
     {
       "id": "recon",
       "enabled": true,
-      "default_fake_status": 200,
       "signals": [
         {
           "pattern": "\\.env(\\b|$)",
+          "flags": "i",
           "where": [
             "path"
           ],
@@ -338,6 +366,7 @@
         },
         {
           "pattern": "\\.git/config",
+          "flags": "i",
           "where": [
             "path"
           ],
@@ -345,6 +374,7 @@
         },
         {
           "pattern": "wp-admin|phpmyadmin",
+          "flags": "i",
           "where": [
             "path"
           ],
@@ -352,6 +382,7 @@
         },
         {
           "pattern": "backup\\.zip|config\\.php\\.bak|\\.htpasswd",
+          "flags": "i",
           "where": [
             "path"
           ],
@@ -359,6 +390,7 @@
         },
         {
           "pattern": "server-status",
+          "flags": "i",
           "where": [
             "path"
           ],
@@ -378,6 +410,7 @@
         "Lagi ngintip-ngintip direktori ya? /admin, /.env, /backup.zip cuma jebakan betmen di sini.",
         "Directory listing sudah dimatikan sejak 2019, bang."
       ],
+      "default_fake_status": 200,
       "fake_payload": {
         "delay_ms": [
           100,
