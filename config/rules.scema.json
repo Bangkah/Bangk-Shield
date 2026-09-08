@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Bangk-Shield Rules",
+  "type": "object",
+  "required": ["global", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "global": {
+      "type": "object",
+      "required": ["body_scan_limit_bytes", "score_threshold"],
+      "additionalProperties": false,
+      "properties": {
+        "body_scan_limit_bytes": { "type": "integer", "minimum": 512, "maximum": 65536 },
+        "score_threshold": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "vectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/vector" }
+    }
+  },
+  "definitions": {
+    "vector": {
+      "type": "object",
+      "required": ["id", "enabled", "signals", "roast", "fake_payload"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "enabled": { "type": "boolean" },
+        "default_fake_status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "signals": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/signal" }
+        },
+        "combo_bonus": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/comboBonus" }
+        },
+        "roast": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "fake_payload": {
+          "type": "object",
+          "required": ["body"],
+          "additionalProperties": false,
+          "properties": {
+            "delay_ms": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0 },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "body": { "type": "object" }
+          }
+        }
+      }
+    },
+    "signal": {
+      "type": "object",
+      "required": ["pattern", "where", "score"],
+      "additionalProperties": false,
+      "properties": {
+        "pattern": { "type": "string", "minLength": 1 },
+        "flags": { "type": "string", "pattern": "^[gimsuy]*$" },
+        "where": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["path", "query", "body", "headers"] }
+        },
+        "score": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "comboBonus": {
+      "type": "object",
+      "required": ["if_all", "add"],
+      "additionalProperties": false,
+      "properties": {
+        "if_all": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string", "pattern": "^[a-z0-9_]+:[0-9]+$" }
+        },
+        "add": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    }
+  }
+}

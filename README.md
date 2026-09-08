@@ -1,19 +1,14 @@
 # Bangk-Shield
 
+**Status: v1 — menggantikan versi sebelumnya sepenuhnya.** Bukan iterasi tambahan, tapi rewrite arsitektur: rule engine dipindah ke build pipeline terkompilasi, ditambah circuit breaker, watermark kriptografis, dan logging dengan sampling.
 
-Edge-based application layer honeypot untuk Cloudflare Workers. Mengintersep request mencurigakan (SQLi, RCE, SSRF, LFI, XSS, dan fuzzing/recon) di edge — sebelum sempat menyentuh origin server — lalu membalasnya dengan "roasting" bernuansa lokal dan fake payload, sambil tetap mencatat aktivitas serangan untuk dianalisis.
+Edge-based application layer honeypot untuk Cloudflare Workers. Mengintersep request mencurigakan (SQLi, RCE, SSRF, LFI, XSS, recon) di edge, membalas dengan roast lokal + fake payload yang meyakinkan, dan mencatat aktivitas serangan secara persisten.
 
 ---
 
 ## 1. Apa Ini Proyek Apa?
 
-Bangk-Shield adalah lapisan pertahanan ringan yang berjalan sepenuhnya di Cloudflare Workers — tanpa server tambahan, tanpa infrastruktur yang perlu dikelola. Alih-alih hanya memblokir request mencurigakan secara diam-diam, Bangk-Shield membalasnya dengan respons palsu yang meyakinkan (fake payload) sekaligus pesan roasting, dengan tiga tujuan:
-
-- **Bagi bot/scanner otomatis** (sqlmap, nuclei, ffuf, dll.) — membuat mereka percaya sedang menemukan celah, sehingga membuang waktu di jalur palsu (*deception*).
-- **Bagi attacker manual/pentester** — memberi sinyal jelas bahwa aktivitasnya sudah diketahui (*deterrence*).
-- **Bagi pemilik situs** — memberi visibilitas: siapa mencoba apa, kapan, dan seberapa serius, lewat log yang benar-benar tersimpan (bukan cuma `console.log` yang hilang begitu saja).
-
-Target pengguna: developer yang ingin trap keamanan ringan untuk portofolio/blog/side project, dan DevSecOps/sysadmin yang ingin lapisan deteksi recon di edge sebelum origin server.
+Bangk-Shield berjalan sepenuhnya di Cloudflare Workers, membalas request mencurigakan dengan respons palsu yang meyakinkan, dengan tiga tujuan: **deception** ke bot/scanner otomatis, **deterrence** ke attacker manual, dan **visibility** ke pemilik situs lewat log yang persisten (bukan `console.log` yang hilang begitu saja).
 
 ---
 
@@ -25,154 +20,167 @@ Bangk-Shield/
 ├── wrangler.toml
 ├── package.json
 ├── config/
-│   ├── whitelist.json
-│   └── scoring.json
+│   ├── whitelist.json      # path/prefix/IP yang dilewatkan tanpa dicek
+│   ├── rules.json           # SUMBER KEBENARAN rule deteksi (edit di sini)
+│   └── rules.schema.json    # JSON Schema untuk validasi rules.json
+├── scripts/
+│   ├── build-rules.cjs      # validasi + lint ReDoS + compile-test + tulis artefak
+│   └── rotate-salt.cjs      # rotasi salt watermark lewat Wrangler KV CLI
 └── src/
-    ├── index.js
-    ├── logger.js
-    └── responses.json
+    ├── index.js             # entry point, orkestrasi
+    ├── rules.compiled.json  # ARTEFAK build, JANGAN diedit manual (lihat §4)
+    ├── scanner.js           # compile regex + evaluasi skor
+    ├── ratelimit.js         # circuit breaker berbasis KV
+    ├── watermark.js         # hash watermark + resolusi salt dari KV
+    ├── logger.js            # logging best-effort ke Analytics Engine
+    └── utils.js             # whitelist check, baca body, sanitasi, passthrough
 ```
 
 ---
 
-## 3. Cara Kerja Engine (`src/index.js`)
+## 3. Cara Kerja Engine
 
-Alur setiap request yang masuk ke Worker:
+Alur tiap request masuk (`src/index.js`):
 
-1. **Cek whitelist** — path yang cocok ekstensi aset statis (`.js`, `.css`, `.svg`, dll.), path yang terdaftar di `config/whitelist.json`, atau IP klien yang terdaftar di sana → diteruskan langsung ke origin, tidak diperiksa.
-2. **Baca URL + body** — body request dibaca maksimal 16 KB pertama (`MAX_INSPECT_BYTES`) untuk mencegah request raksasa jadi vektor DoS terhadap Worker itu sendiri. URL dan body digabung jadi satu teks yang diperiksa.
-3. **Evaluasi skor** — teks tadi dicocokkan terhadap keyword dan regex tiap attack vector di `config/scoring.json`. Setiap vector yang cocok menambah skor sesuai bobotnya.
-4. **Bandingkan ke threshold** — kalau skor total ≥ `threshold` (saat ini `5`), honeypot aktif: response palsu dikirim balik beserta header `X-Bangk-Shield: honeypot-active`.
-5. **Log non-blocking** — event serangan dicatat lewat `ctx.waitUntil()` (lihat §7) supaya tidak menambah latensi response ke penyerang.
-6. **Kalau bukan serangan** — request diteruskan apa adanya ke origin/aset asli.
-7. **Fail-open** — kalau ada error apapun di titik manapun dalam proses ini, request tetap diteruskan ke origin. Bangk-Shield tidak pernah memblokir trafik karena bug internalnya sendiri.
-
-Data yang dipantulkan balik ke response (URL, User-Agent) sudah disanitasi — karakter kontrol dibuang dan panjangnya dibatasi 500 karakter — supaya tidak jadi celah log/response injection.
-
----
-
-## 4. Konfigurasi Deteksi (`config/scoring.json`)
-
-Threshold saat ini: **5**. Bobot per attack vector didesain berjenjang, bukan flat, supaya vector yang risiko false-positive-nya tinggi butuh kombinasi sinyal, sementara vector yang sinyalnya sudah cukup spesifik bisa memicu sendirian:
-
-| Vector | Bobot | Bisa memicu sendirian? | Contoh keyword/pattern yang dicek |
-|---|---|---|---|
-| **SQLi** | 5 | Ya | `union select`, `or 1=1`, `sleep(`, `xp_cmdshell`, pattern `\bunion\s+select\b` |
-| **RCE** | 5 | Ya | `/bin/bash`, `exec(`, `eval(`, `wget http`, pattern `(;\|\|\|&&)\s*(cat\|ls\|whoami)` |
-| **SSRF** | 5 | Ya | `169.254.169.254`, `metadata.google.internal`, `file://`, `gopher://` |
-| **LFI** | 4 | Tidak (perlu tambahan sinyal) | `etc/passwd`, `php://filter`, pattern `(\.\./){2,}` |
-| **XSS** | 3 | Tidak | `<script`, `onerror=`, `document.cookie`, pattern `<\s*script[^>]*>` |
-| **Recon** | 2 | Tidak | `.env`, `.git/config`, `wp-admin`, `phpmyadmin`, `.htpasswd` |
-
-Semua regex ditulis sederhana (tanpa nested quantifier seperti `(a+)+`) untuk menghindari *catastrophic backtracking* (ReDoS), dan hanya dites terhadap teks yang sudah dibatasi 16 KB.
-
-> Daftar keyword/pattern lengkap ada langsung di `config/scoring.json` — tabel di atas hanya cuplikan.
+1. **Known-asset check** (`isKnownAsset` di `utils.js`) — ekstensi statis, path/prefix di `whitelist.json`, atau IP terdaftar → langsung `passthrough()`.
+2. **Circuit breaker** (`ratelimit.js`) — kalau IP klien sudah memicu honeypot ≥5 kali dalam 60 detik terakhir (tercatat di KV), langsung dibalas `403` statis murah, tanpa komputasi payload/watermark/delay.
+3. **Context extraction** — `path`, `query`, `headers` (User-Agent), dan `body` (kalau `Content-Type` berbasis teks) dikumpulkan, masing-masing di-**decode** (`safeDecode`) dan di-lowercase.
+4. **Scoring** (`scanner.js`) — tiap vector di `rules.compiled.json` dicek sinyalnya terhadap field context yang relevan (`where`), skor dijumlahkan, ditambah *combo bonus* kalau kombinasi sinyal tertentu muncul bersamaan.
+5. **Trigger honeypot** kalau skor ≥ `global.score_threshold` (default `50`):
+   - Delay acak (deception, `fake_payload.delay_ms` per vector).
+   - Watermark SHA-256 dihasilkan dari `IP + User-Agent + tanggal + salt`.
+   - Strike dicatat ke KV (untuk circuit breaker), event dicatat ke Analytics Engine (best-effort, non-blocking).
+   - Response berisi roast acak + fake payload JSON + header `X-Bangk-Shield` dan `X-Bangk-Shield-Watermark`.
+6. **Bukan serangan** → `passthrough()` ke origin.
+7. **Fail-open** — error apapun di titik manapun → log `engine_error`, lalu tetap coba `passthrough()` (bukan blokir).
 
 ---
 
-## 5. Konfigurasi Whitelist (`config/whitelist.json`)
+## 4. Build Pipeline — WAJIB Dijalankan Sebelum Dev/Deploy
 
-```json
-{
-  "paths": ["/robots.txt", "/sitemap.xml", "/favicon.ico", "/api/health"],
-  "ips": []
-}
+`src/index.js` **tidak membaca** `config/rules.json` langsung. Ia membaca `src/rules.compiled.json`, sebuah artefak yang dihasilkan `scripts/build-rules.cjs`:
+
+```bash
+npm run build:rules
 ```
 
-Path-path umum yang wajar diakses siapa saja (robots, sitemap, favicon, health check) sudah dibebaskan dari pengecekan. Array `ips` sengaja dikosongkan — isi dengan IP kantor/tim/monitoring internal kalau perlu dikecualikan dari honeypot.
+Tahapan build (fail-closed — kalau satu langkah gagal, artefak TIDAK ditulis, proses exit non-zero):
+1. Parse `config/rules.json`.
+2. Validasi terhadap `config/rules.schema.json` (Ajv).
+3. Lint tiap regex pattern untuk pola rawan ReDoS (nested quantifier, dll).
+4. Compile-test tiap regex (`new RegExp(...)`) — menangkap typo syntax sebelum sampai ke edge.
+5. Tulis `src/rules.compiled.json`.
+
+Script ini otomatis terpanggil lewat `predev` dan `predeploy` di `package.json` — jadi `npm run dev` dan `npm run deploy` selalu memakai rules terbaru. **Jangan edit `src/rules.compiled.json` manual** — perubahan akan tertimpa build berikutnya. Edit selalu di `config/rules.json`.
 
 ---
 
-## 6. Respons Honeypot (`src/responses.json`)
+## 5. Konfigurasi Rules (`config/rules.json`)
 
-Setiap attack vector punya roast bernuansa lokal dan fake payload sendiri (7 entri: `SQLi`, `RCE`, `SSRF`, `LFI`, `XSS`, `Recon`, plus `Unknown Reconnaissance` sebagai fallback untuk vector yang belum terdefinisi). Contoh:
+Threshold global: **50**. Tiap vector punya beberapa `signals` (regex + `where` yaitu field context yang diperiksa + `score`), opsional `combo_bonus` (skor tambahan kalau kombinasi sinyal tertentu muncul bersamaan), `roast` (array, dipilih acak), dan `fake_payload` (delay + body JSON palsu).
 
-```json
-"SQLi": {
-  "roast": "Union select nyasar ke lapak yang salah, bang...",
-  "payload": "MySQL error 1064: syntax intentionally malformed near 'FROM users'..."
-}
+| Vector | Bisa trigger sendirian? | Sinyal kuat (contoh) |
+|---|---|---|
+| **sqli** | Ya (skor 55–60) | `union select`, `or 1=1`, `sleep(` |
+| **rce** | Ya (skor 50–60) | `exec(`, `/bin/bash`, `wget http://` |
+| **ssrf** | Ya (skor 55–60) | `169.254.169.254`, `metadata.google.internal` |
+| **lfi** | Ya untuk signature unik (`etc/passwd`=50), tidak untuk pola ambigu (`../../`=35, butuh combo) | `etc/passwd`, `php://filter` |
+| **xss** | Tidak sendirian (skor 25–35), perlu combo | `<script`, `document.cookie` |
+| **recon** | Tidak sendirian (skor 20–25), perlu combo | `.env`, `wp-admin`, `phpmyadmin` |
+
+**Penting soal `where`:** field ini menentukan bagian request mana yang diperiksa signal tersebut (`path`, `query`, `body`, `headers`). Signal path-traversal seperti `etc/passwd` HARUS menyertakan `"path"` di `where`-nya — kalau tidak, signal itu tidak akan pernah cocok untuk serangan yang muncul di pathname (lihat §8 soal bug ini).
+
+---
+
+## 6. Watermark & Rotasi Salt
+
+Tiap response honeypot menyertakan `X-Bangk-Shield-Watermark`, hash SHA-256 dari `IP + User-Agent + tanggal + salt`. Ini bukti verifikasi: kalau ada yang screenshot response ini dan klaim itu kerentanan asli, pemilik situs bisa membuktikan itu watermark Bangk-Shield miliknya.
+
+Salt disimpan di Workers KV (`wm:salt:current`), **bukan** env var statis — supaya bisa dirotasi tanpa redeploy:
+
+```bash
+npm run salt:rotate
 ```
 
-Setiap `payload` sengaja dibuat terlihat meyakinkan tapi **tidak mengandung info sensitif nyata apapun** (bukan versi software asli, bukan struktur file asli) — supaya aman kalau ter-screenshot dan tidak disalahartikan sebagai kebocoran beneran.
+Script ini memindahkan salt lama ke riwayat (`wm:salt:history`, maksimal 5 generasi) lalu generate salt baru. Tanpa `BANGK_KV` dikonfigurasi, sistem fallback ke `env.WATERMARK_SALT` (statis, hanya untuk dev lokal) — **jangan andalkan ini di produksi**.
 
 ---
 
-## 7. Logging (`src/logger.js`)
+## 7. Circuit Breaker & Logging
 
-Urutan prioritas backend logging, dipilih otomatis sesuai binding yang aktif di `wrangler.toml`:
-
-1. **Workers Analytics Engine** (`env.BANGK_ANALYTICS`) — kalau binding diaktifkan.
-2. **Workers KV** (`env.BANGK_KV`) — fallback kalau Analytics Engine tidak diaktifkan.
-3. **`console.log`** — fallback terakhir, terlihat lewat `wrangler tail` saat development lokal.
-
-Di versi beta ini, **kedua binding (KV & Analytics Engine) belum diaktifkan** di `wrangler.toml` — jadi log saat ini jalan lewat fallback `console.log`. Ini disengaja untuk tahap testing awal supaya tidak perlu setup Cloudflare tambahan dulu.
+- **Circuit breaker** (`ratelimit.js`): IP yang memicu honeypot ≥5 kali dalam 60 detik dapat respons `403` statis (tanpa delay/watermark/payload computation), meredam beban CPU dari scanner agresif. Berbasis KV counter — bukan atomic, cukup untuk anti-abuse ringan, bukan rate limit presisi tinggi.
+- **Logging** (`logger.js`): dikirim ke Workers Analytics Engine, fire-and-forget lewat `ctx.waitUntil()`. Event dengan skor <30 di-sampling 20% saja untuk menghemat kuota harian tier gratis. **Tanpa binding `BANGK_ANALYTICS`, tidak ada log yang tersimpan sama sekali** (lihat §9).
 
 ---
 
-## 8. Konfigurasi Deployment (`wrangler.toml` & `package.json`)
+## 8. Changelog — Bug yang Ditemukan & Diperbaiki
 
-`wrangler.toml` saat ini:
-- `main = "src/index.js"`, `compatibility_date = "2026-01-01"`.
-- Belum ada `routes` — artinya kalau di-deploy sekarang, Worker akan aktif di subdomain `*.workers.dev` bawaan, bukan di domain kustom.
-- Binding `ASSETS`, `BANGK_KV`, `BANGK_ANALYTICS` masih dikomentari (nonaktif) — lihat §7.
+Draft kode sebelum versi ini punya bug kritis: `context` yang dievaluasi cuma berisi `query`, `headers`, `body` — **tidak ada `path`**. Akibatnya, semua signal yang menyasar pathname (`/etc/passwd`, `/.env`, `/wp-admin`, dst.) tidak akan pernah terdeteksi, karena `context['path']` selalu `undefined`. Ini sudah diperbaiki di `index.js` (`context.path = safeDecode(path).toLowerCase()`) dan divalidasi lewat pengujian manual terhadap 5 skenario (path traversal, recon combo, SQLi ter-encode, trafik legit) — semua lulus setelah perbaikan.
 
-`package.json` menyediakan script:
-
-| Script | Fungsi |
-|---|---|
-| `npm run dev` | Jalankan Worker secara lokal via `wrangler dev` |
-| `npm run deploy` | Deploy ke akun Cloudflare |
-| `npm run tail` | Lihat log real-time (`wrangler tail`) |
-| `npm run kv:create` | Bikin KV namespace baru kalau nanti mau aktifkan `BANGK_KV` |
+Selain itu, salt watermark yang di draft sebelumnya hanya baca `env.WATERMARK_SALT` (env var statis) — padahal PRD menjanjikan rotasi lewat KV. Sudah diperbaiki: `watermark.js` sekarang baca KV dulu, env var jadi fallback dev saja (lihat §6).
 
 ---
 
-## 9. Cara Menjalankan
+## 9. Known Limitations (Belum Diimplementasikan)
 
-### 9.1 Prasyarat
-- Node.js versi LTS terbaru dan npm.
-- Akun Cloudflare (tier gratis cukup).
+- **Admin dashboard (PRD §3.7)** — endpoint HTML untuk meninjau data Analytics Engine, terintegrasi Cloudflare Access, **belum ada kodenya sama sekali** di v1 ini. `ADMIN_PATH` di `wrangler.toml` baru placeholder. Ini butuh setup Cloudflare Access terpisah di dashboard akun + query balik ke Analytics Engine (GraphQL API, autentikasi API token) yang belum diimplementasikan.
+- **Tanpa `BANGK_ANALYTICS` binding, tidak ada log tersimpan** — tidak ada fallback ke `console.log` seperti versi sebelumnya (desain baru ini murni Analytics Engine, sesuai PRD §3.5). Kalau butuh logging sebelum setup Analytics Engine, tambahkan sementara `console.log` di `logger.js`.
+- **Circuit breaker via KV bukan atomic** — di bawah burst concurrent yang sangat tinggi, race condition pada `recordStrike` bisa membuat hitungan strike sedikit meleset. Untuk rate limiting presisi, perlu Durable Objects (di luar scope v1).
+- **NFR latensi (§5 PRD, ≤25ms untuk scoring)** belum diukur dengan micro-benchmark sungguhan — baru diverifikasi secara fungsional (lulus test case), bukan diverifikasi secara performa.
 
-### 9.2 Install & login
+---
+
+## 10. Cara Menjalankan
+
+### 10.1 Prasyarat
+- Node.js LTS terbaru, npm.
+- Akun Cloudflare (tier gratis cukup untuk KV + Analytics Engine dasar).
+
+### 10.2 Install & login
 ```bash
 npm install
 npx wrangler login
 ```
 
-### 9.3 Jalankan lokal
+### 10.3 Setup KV (wajib untuk circuit breaker & watermark rotation)
+```bash
+npm run kv:create
+# Salin "id" dari output perintah di atas ke wrangler.toml, bagian [[kv_namespaces]]
+```
+
+### 10.4 Jalankan lokal
 ```bash
 npm run dev
 ```
-Worker akan aktif di `http://localhost:8787` (atau port lain yang ditampilkan). Contoh uji coba:
+`predev` otomatis menjalankan `build:rules` lebih dulu. Contoh uji coba (path traversal sekarang benar-benar terdeteksi, lihat §8):
 
 ```bash
-# SQLi -> harusnya kena honeypot
-curl -i "http://localhost:8787/?id=1' UNION SELECT 1--"
+# LFI di path -> harus kena honeypot (skor 50 = threshold)
+curl -i "http://localhost:8787/etc/passwd"
 
-# LFI -> harusnya kena honeypot
-curl -i "http://localhost:8787/../../etc/passwd"
-
-# Recon -> sendirian belum cukup skor (weight 2 < threshold 5), harusnya LOLOS
+# Recon sendirian -> harus LOLOS (skor 25 < threshold 50)
 curl -i "http://localhost:8787/.env"
 
-# Trafik biasa -> harusnya lolos normal
+# Recon combo -> harus kena honeypot (skor 25+20+20 combo bonus)
+curl -i "http://localhost:8787/.env/wp-admin"
+
+# SQLi di query, URL-encoded -> harus kena honeypot (sudah di-decode otomatis)
+curl -i "http://localhost:8787/search?id=1%27%20union%20select%201--"
+
+# Trafik biasa -> harus lolos normal
 curl -i "http://localhost:8787/"
 ```
-Response honeypot ditandai header `X-Bangk-Shield: honeypot-active`. Pantau log di terminal lain dengan `npm run tail`.
 
-### 9.4 Deploy
+### 10.5 Deploy
 ```bash
 npm run deploy
 ```
-Setelah sukses, Wrangler menampilkan URL Worker. Untuk pasang di depan domain yang sudah ada, isi bagian `routes` di `wrangler.toml` (lihat komentar di dalamnya) lalu deploy ulang.
+`predeploy` otomatis menjalankan `build:rules` lebih dulu. Isi `ORIGIN_URL` di `wrangler.toml` sebelum deploy produksi, atau `passthrough()` hanya akan membalas placeholder (lihat catatan di `src/utils.js`).
 
 ---
 
-## 10. Roadmap Setelah Beta
+## 11. Roadmap
 
-- **Phase 2:** Aktifkan `BANGK_ANALYTICS` atau `BANGK_KV`, lalu migrasi ke database terpusat (Cloudflare D1 / Supabase) untuk agregasi log lintas domain.
-- **Phase 3:** Alerting instan via Webhook (Discord/Telegram) untuk serangan skor tinggi.
-- **Phase 4:** Tombol "Deploy to Cloudflare" satu klik untuk adopsi developer lain.
-
-Penyesuaian bobot skor, pattern regex, dan isi roast/payload akan dilakukan berdasarkan hasil testing beta ini — dokumen ini akan diperbarui mengikuti perubahan tersebut.
+- Implementasi admin dashboard (PRD §3.7) + integrasi Cloudflare Access.
+- Micro-benchmark CPU time untuk memverifikasi NFR §5 PRD secara kuantitatif.
+- Evaluasi migrasi circuit breaker dari KV ke Durable Objects kalau presisi rate limit jadi kebutuhan nyata.
