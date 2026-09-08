@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Wrangler local state and build output
+.wrangler/
+dist/
+build/
+
+# OS and Editor specific files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment variables and secrets
+.env
+.dev.vars
+.npmrc

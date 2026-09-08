@@ -1,5 +1,5 @@
 # =============================================================================
-# Bangk-Shield — Cloudflare Workers configuration (v1)
+# Bangk-Shield — Cloudflare Workers configuration (Beta)
 # Dokumentasi lengkap opsi: https://developers.cloudflare.com/workers/wrangler/configuration/
 # =============================================================================
 
@@ -32,7 +32,7 @@ compatibility_date = "2026-01-01"
 # binding = "ASSETS"
 
 # -----------------------------------------------------------------------------
-# WORKERS KV — WAJIB untuk fitur v1 berikut (bukan lagi opsional seperti draft
+# WORKERS KV — WAJIB untuk fitur Beta berikut (bukan lagi opsional seperti draft
 # sebelumnya):
 #   - Circuit breaker (src/ratelimit.js) -> key "strike:<ip>"
 #   - Watermark salt rotation (src/watermark.js) -> key "wm:salt:current" & "wm:salt:history"
@@ -45,7 +45,7 @@ compatibility_date = "2026-01-01"
 
 [[kv_namespaces]]
 binding = "BANGK_KV"
-id = "isi-dengan-id-kv-namespace-anda"
+id = "09533093da544735b0efb0a9f8e47f81"
 
 # -----------------------------------------------------------------------------
 # WORKERS ANALYTICS ENGINE — dipakai src/logger.js untuk logging best-effort.
@@ -73,6 +73,13 @@ ORIGIN_URL = ""
 # dan dikelola lewat `npm run salt:rotate` -- JANGAN andalkan env var ini di prod.
 WATERMARK_SALT = "dev-only-change-me"
 
-# Segmen path admin dashboard (lihat PRD §3.7). CATATAN: dashboard-nya sendiri
-# BELUM diimplementasikan di v1 ini -- lihat README §Known Limitations.
+# Circuit breaker (IP yang memicu honeypot berulang di-block sementara) aktif
+# secara default. Set "false" kalau situs Anda rawan false-positive dari IP
+# yang dipakai bersama banyak pengguna (kantor/CGNAT ISP) -- blocking berbasis
+# IP bisa mengenai semua orang di belakang IP publik yang sama, bukan cuma
+# penyerang sungguhan. Lihat README §9 Known Limitations.
+CIRCUIT_BREAKER_ENABLED = "true"
+
+# Segmen path admin dashboard (lihat PRD Beta §3.7). CATATAN: dashboard-nya sendiri
+# BELUM diimplementasikan di Beta ini -- lihat README §Known Limitations.
 # ADMIN_PATH = ""

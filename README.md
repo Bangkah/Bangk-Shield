@@ -1,6 +1,6 @@
 # Bangk-Shield
 
-**Status: v1 — menggantikan versi sebelumnya sepenuhnya.** Bukan iterasi tambahan, tapi rewrite arsitektur: rule engine dipindah ke build pipeline terkompilasi, ditambah circuit breaker, watermark kriptografis, dan logging dengan sampling.
+**Status: Beta — menggantikan versi sebelumnya sepenuhnya.** Bukan iterasi tambahan, tapi rewrite arsitektur: rule engine dipindah ke build pipeline terkompilasi, ditambah circuit breaker, watermark kriptografis, dan logging dengan sampling.
 
 Edge-based application layer honeypot untuk Cloudflare Workers. Mengintersep request mencurigakan (SQLi, RCE, SSRF, LFI, XSS, recon) di edge, membalas dengan roast lokal + fake payload yang meyakinkan, dan mencatat aktivitas serangan secara persisten.
 
@@ -94,15 +94,27 @@ Threshold global: **50**. Tiap vector punya beberapa `signals` (regex + `where` 
 
 ## 6. Watermark & Rotasi Salt
 
-Tiap response honeypot menyertakan `X-Bangk-Shield-Watermark`, hash SHA-256 dari `IP + User-Agent + tanggal + salt`. Ini bukti verifikasi: kalau ada yang screenshot response ini dan klaim itu kerentanan asli, pemilik situs bisa membuktikan itu watermark Bangk-Shield miliknya.
+Tiap response honeypot menyertakan `X-Bangk-Shield-Watermark`, hash yang bisa diverifikasi ulang oleh pemilik situs. Format persis (sesuai PRD Beta §3.4.1, dipakai test vector CI):
 
-Salt disimpan di Workers KV (`wm:salt:current`), **bukan** env var statis — supaya bisa dirotasi tanpa redeploy:
+```
+Canonical : bangk-shield/v1|<ip>|<ua>|<yyyy-mm-dd>|<salt>
+Output    : bs1-<16 karakter hex pertama dari SHA-256(canonical)>
+```
+
+Salt disimpan di Workers KV, bukan env var statis — supaya bisa dirotasi tanpa redeploy. Bentuk data di KV:
+
+```
+wm:salt:current -> { "salt": "...", "since": "<ISO date>" }
+wm:salt:history -> [{ "salt": "...", "since": "...", "until": "..." }, ...]  (maks 5 entri)
+```
+
+Rotasi:
 
 ```bash
 npm run salt:rotate
 ```
 
-Script ini memindahkan salt lama ke riwayat (`wm:salt:history`, maksimal 5 generasi) lalu generate salt baru. Tanpa `BANGK_KV` dikonfigurasi, sistem fallback ke `env.WATERMARK_SALT` (statis, hanya untuk dev lokal) — **jangan andalkan ini di produksi**.
+Script ini memindahkan entri current lama ke `wm:salt:history` (dengan `until` diisi timestamp rotasi) lalu generate salt baru. Tanpa `BANGK_KV` dikonfigurasi, sistem fallback ke `env.WATERMARK_SALT` (statis, hanya untuk dev lokal) — **jangan andalkan ini di produksi**, dan setiap kali fallback terjadi, event `salt_fallback` tercatat ke Analytics Engine supaya operator sadar salt sedang tidak dirotasi dari KV.
 
 ---
 
@@ -115,18 +127,30 @@ Script ini memindahkan salt lama ke riwayat (`wm:salt:history`, maksimal 5 gener
 
 ## 8. Changelog — Bug yang Ditemukan & Diperbaiki
 
-Draft kode sebelum versi ini punya bug kritis: `context` yang dievaluasi cuma berisi `query`, `headers`, `body` — **tidak ada `path`**. Akibatnya, semua signal yang menyasar pathname (`/etc/passwd`, `/.env`, `/wp-admin`, dst.) tidak akan pernah terdeteksi, karena `context['path']` selalu `undefined`. Ini sudah diperbaiki di `index.js` (`context.path = safeDecode(path).toLowerCase()`) dan divalidasi lewat pengujian manual terhadap 5 skenario (path traversal, recon combo, SQLi ter-encode, trafik legit) — semua lulus setelah perbaikan.
+**Bug kritis #1 — deteksi path hilang total.** Draft awal `context` yang dievaluasi cuma berisi `query`, `headers`, `body` — **tidak ada `path`**. Akibatnya semua signal yang menyasar pathname (`/etc/passwd`, `/.env`, `/wp-admin`, dst.) tidak akan pernah terdeteksi. Sudah diperbaiki (`context.path = safeDecode(path).toLowerCase()`) dan divalidasi lewat 5 skenario uji manual — semua lulus.
 
-Selain itu, salt watermark yang di draft sebelumnya hanya baca `env.WATERMARK_SALT` (env var statis) — padahal PRD menjanjikan rotasi lewat KV. Sudah diperbaiki: `watermark.js` sekarang baca KV dulu, env var jadi fallback dev saja (lihat §6).
+**Bug kritis #2 — format watermark tidak sesuai spesifikasi PRD Beta §3.4.1.** Kode awal menghasilkan canonical string `bangk-shield|...` (tanpa `/v1`) dan output `bs-<hash>` (tanpa `1`), padahal PRD mensyaratkan `bangk-shield/v1|...` dan `bs1-<hash>` untuk keperluan test vector CI. Sudah diperbaiki di `watermark.js`.
+
+**Bug kritis #3 — bentuk data salt di KV tidak cocok antara kode dan PRD.** Kode awal memperlakukan nilai KV `wm:salt:current`/`wm:salt:history` sebagai **string polos**, padahal PRD Beta §3.4.1 mendefinisikan bentuk **objek** (`{ salt, since }` dan `{ salt, since, until }`). Kalau ini tidak diperbaiki, begitu `salt:rotate` mulai menulis objek sesuai PRD, `resolveSalt()` akan memakai string JSON utuh sebagai salt secara diam-diam — semua watermark jadi salah tanpa error apapun. Sudah diperbaiki di `watermark.js` (toleran terhadap dua bentuk untuk migrasi) dan `rotate-salt.cjs` (menulis bentuk objek).
+
+**Optimasi — urutan circuit breaker vs scoring dibalik.** Draft awal memanggil `checkCircuitBreaker` (butuh `await` ke KV) untuk **setiap** request non-whitelist, termasuk yang ternyata legit — menambah latensi & biaya KV ke mayoritas trafik yang tidak bersalah. Sekarang scoring (murni in-memory, tanpa I/O) dikerjakan lebih dulu; KV baru disentuh kalau request memang lolos sebagai kandidat serangan.
+
+**Lint baru — case-sensitivity di build pipeline.** Karena `index.js` selalu me-lowercase seluruh context sebelum dicocokkan ke regex, pattern dengan huruf kapital literal (mis. `UNION SELECT`) tidak akan pernah match — signal itu "mati" secara diam-diam meski sintaksnya valid. `build-rules.cjs` sekarang menggagalkan build (fail-closed) kalau menemukan huruf kapital literal di pattern manapun, sudah diuji lewat kasus negatif (build sengaja dirusak, terbukti gagal dengan pesan jelas).
+
+**Logging yang sebelumnya tercecer, sekarang tersambung:**
+- Event `circuit_breaker_block` (IP yang diblokir CB) sekarang ikut tercatat ke Analytics Engine — sebelumnya CB block sama sekali tidak ter-log.
+- Event `salt_fallback` (salt gagal diambil dari KV, jatuh ke env var/default) sekarang tercatat oleh `index.js` — kebijakan logging-nya sengaja diletakkan di sini, bukan di `watermark.js`, karena modul itu tidak punya akses `ctx.waitUntil`.
 
 ---
 
-## 9. Known Limitations (Belum Diimplementasikan)
+## 9. Known Limitations (Belum Diimplementasikan / Risiko yang Disadari)
 
-- **Admin dashboard (PRD §3.7)** — endpoint HTML untuk meninjau data Analytics Engine, terintegrasi Cloudflare Access, **belum ada kodenya sama sekali** di v1 ini. `ADMIN_PATH` di `wrangler.toml` baru placeholder. Ini butuh setup Cloudflare Access terpisah di dashboard akun + query balik ke Analytics Engine (GraphQL API, autentikasi API token) yang belum diimplementasikan.
-- **Tanpa `BANGK_ANALYTICS` binding, tidak ada log tersimpan** — tidak ada fallback ke `console.log` seperti versi sebelumnya (desain baru ini murni Analytics Engine, sesuai PRD §3.5). Kalau butuh logging sebelum setup Analytics Engine, tambahkan sementara `console.log` di `logger.js`.
-- **Circuit breaker via KV bukan atomic** — di bawah burst concurrent yang sangat tinggi, race condition pada `recordStrike` bisa membuat hitungan strike sedikit meleset. Untuk rate limiting presisi, perlu Durable Objects (di luar scope v1).
-- **NFR latensi (§5 PRD, ≤25ms untuk scoring)** belum diukur dengan micro-benchmark sungguhan — baru diverifikasi secara fungsional (lulus test case), bukan diverifikasi secara performa.
+- **Admin dashboard (PRD Beta §3.7)** — endpoint HTML untuk meninjau data Analytics Engine, terintegrasi Cloudflare Access, **belum ada kodenya sama sekali** di Beta ini. `ADMIN_PATH` di `wrangler.toml` baru placeholder.
+- **Circuit breaker cuma satu level.** PRD Beta §3.7 mendefinisikan dua level: >5 trigger/menit → respons honeypot minimal (sudah ada), dan **sustained M menit → known-attacker block 24 jam** (belum ada). `ratelimit.js` hanya punya counter 60 detik sliding window.
+- **Risiko block IP bersama (shared-IP collateral).** Circuit breaker bekerja per-IP. Kalau situs Anda diakses lewat NAT kantor atau CGNAT ISP, satu pengguna yang memicu 5 false-positive bisa membuat semua pengguna lain di belakang IP publik yang sama ikut terblokir. Set `CIRCUIT_BREAKER_ENABLED = "false"` di `wrangler.toml` kalau ini jadi masalah nyata di situs Anda, atau tinjau ulang threshold (`STRIKE_THRESHOLD` di `ratelimit.js`).
+- **Tanpa `BANGK_ANALYTICS` binding, tidak ada log tersimpan** — desain ini murni Analytics Engine (sesuai PRD Beta §3.5), tidak ada fallback `console.log`.
+- **Circuit breaker via KV bukan atomic** — di bawah burst concurrent sangat tinggi, race condition pada `recordStrike` bisa membuat hitungan strike sedikit meleset. Untuk presisi tinggi, perlu Durable Objects (di luar scope Beta).
+- **NFR latensi (§5 PRD Beta, ≤25ms untuk scoring)** belum diukur dengan micro-benchmark sungguhan — baru diverifikasi fungsional (lulus test case), bukan diverifikasi performa kuantitatif.
 
 ---
 
@@ -181,6 +205,6 @@ npm run deploy
 
 ## 11. Roadmap
 
-- Implementasi admin dashboard (PRD §3.7) + integrasi Cloudflare Access.
-- Micro-benchmark CPU time untuk memverifikasi NFR §5 PRD secara kuantitatif.
+- Implementasi admin dashboard + integrasi Cloudflare Access.
+- Micro-benchmark CPU time untuk memverifikasi NFR PRD Beta secara kuantitatif.
 - Evaluasi migrasi circuit breaker dari KV ke Durable Objects kalau presisi rate limit jadi kebutuhan nyata.
