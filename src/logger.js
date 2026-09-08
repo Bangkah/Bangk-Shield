@@ -6,7 +6,7 @@
  *
  * Sampling: event dengan skor rendah (di bawah SAMPLING_SCORE_THRESHOLD)
  * di-sampling sebagian saja untuk menghemat kuota harian paket gratis,
- * sesuai PRD §3.5.
+ * sesuai PRD Beta §3.5.
  */
 
 const SAMPLING_SCORE_THRESHOLD = 30;
