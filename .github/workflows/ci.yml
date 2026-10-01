@@ -2,14 +2,20 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
     name: Build rules & run tests
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,26 +23,33 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      # Fail-closed by design (PRD Beta bagian 5): kalau config/rules.json tidak lolos
-      # schema validation, ReDoS lint, atau case-sensitivity lint, job ini berhenti
-      # di sini -- tidak ada artefak rusak yang lanjut ke test atau deploy.
-      - name: Build rules (schema validation + ReDoS lint + case-sensitivity lint)
+      # Fail-closed by design:
+      # - config/rules.json schema validation
+      # - ReDoS lint
+      # - case-sensitivity lint
+      #
+      # Jika rules tidak valid, workflow berhenti di sini dan
+      # tidak menghasilkan artifact rules yang tidak tervalidasi.
+      - name: Build rules
         run: npm run build:rules
 
-      # Test scanner (skenario deteksi: path traversal, combo bonus, SQLi ter-encode,
-      # trafik legit) dan watermark (format bagian 3.4.1, bentuk data KV, fallback salt).
+      # Menjalankan seluruh test suite setelah rules berhasil
+      # dikompilasi dan divalidasi.
       - name: Run tests
         run: npm test
 
-      - name: Upload compiled rules artifact
+      # Artifact hanya dibuat setelah build rules dan test berhasil.
+      - name: Upload compiled rules
         uses: actions/upload-artifact@v4
         with:
           name: rules-compiled
           path: src/rules.compiled.json
+          if-no-files-found: error
           retention-days: 7
