@@ -30,22 +30,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Fail-closed by design:
-      # - config/rules.json schema validation
-      # - ReDoS lint
-      # - case-sensitivity lint
-      #
-      # Jika rules tidak valid, workflow berhenti di sini dan
-      # tidak menghasilkan artifact rules yang tidak tervalidasi.
       - name: Build rules
         run: npm run build:rules
 
-      # Menjalankan seluruh test suite setelah rules berhasil
-      # dikompilasi dan divalidasi.
       - name: Run tests
         run: npm test
 
-      # Artifact hanya dibuat setelah build rules dan test berhasil.
       - name: Upload compiled rules
         uses: actions/upload-artifact@v4
         with:
