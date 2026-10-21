@@ -6,6 +6,10 @@
 
 Edge-based application layer honeypot untuk Cloudflare Workers. Mengintersep request mencurigakan (SQLi, RCE, SSRF, LFI, XSS, recon) di edge, membalas dengan roast lokal + fake payload yang meyakinkan, dan mencatat aktivitas serangan secara persisten.
 
+> Dokumentasi lengkap: **https://bangk-shield.bangkah.tech** — sumbernya ada di [`docs/`](./docs).
+>
+> Hub semua project: **https://bangkah.tech**
+
 ---
 
 ## 1. Apa Ini Proyek Apa?
@@ -202,6 +206,25 @@ curl -i "http://localhost:8787/"
 npm run deploy
 ```
 `predeploy` otomatis menjalankan `build:rules` lebih dulu. Isi `ORIGIN_URL` di `wrangler.toml` sebelum deploy produksi, atau `passthrough()` hanya akan membalas placeholder (lihat catatan di `src/utils.js`).
+
+### 10.6 Menjalankan situs dokumentasi
+
+Situs dokumentasi (Astro Starlight) berada di `docs/` dan di-deploy terpisah ke Cloudflare Pages
+sebagai project `bangk-shield-docs`. URL publiknya `https://bangk-shield.bangkah.tech`,
+dipegang oleh Worker `bangk-shield` dengan origin `https://bangk-shield-docs.pages.dev`.
+Apex `bangkah.tech` disiapkan untuk index project lain.
+
+```bash
+npm run docs:install   # sekali saja
+npm run docs:dev       # dev server Astro
+npm run docs:build     # build statis -> docs/dist/
+npm run docs:deploy    # build + deploy manual ke Cloudflare Pages
+```
+
+Deploy otomatis dijalankan `.github/workflows/deploy-docs.yml` setiap kali `docs/**` berubah di
+branch `main`. Pull request ke `main` hanya menjalankan build; deploy produksi berjalan setelah
+perubahan masuk ke `main`. Workflow ini membutuhkan secret `CLOUDFLARE_API_TOKEN` dan
+`CLOUDFLARE_ACCOUNT_ID`. Tanpa keduanya, build tetap berjalan dan deploy dilewati.
 
 ---
 

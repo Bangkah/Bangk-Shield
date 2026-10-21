@@ -6,6 +6,9 @@ node_modules/
 dist/
 build/
 
+# Astro docs cache
+.astro/
+
 # OS and Editor specific files
 .DS_Store
 Thumbs.db

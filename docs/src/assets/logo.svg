@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Bangk-Shield">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#8a5b3d" />
+  <path d="M32 11 51 18.5v11c0 10.2-7.6 18.6-19 22.5-11.4-3.9-19-12.3-19-22.5v-11L32 11Z" fill="#fffaf2" />
+  <path d="M23 25h18M23 32h12M23 39h15" stroke="#8a5b3d" stroke-width="4" stroke-linecap="round" />
+</svg>

@@ -1,0 +1,66 @@
+---
+title: Bangk-Shield
+description: Honeypot application layer berbasis edge untuk Cloudflare Workers. Deteksi SQLi, RCE, SSRF, LFI, XSS, dan recon — balas dengan payload palsu yang meyakinkan.
+template: splash
+hero:
+  tagline: Honeypot application layer di edge. Menipu scanner, mencatat penyerang, tanpa menambah server.
+  image:
+    file: ../../assets/logo.svg
+    alt: Logo Bangk-Shield
+  actions:
+    - text: Mulai membaca
+      link: /mulai/pendahuluan/
+      icon: right-arrow
+    - text: Lihat di GitHub
+      link: https://github.com/Bangkah/Bangk-Shield
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Bangk-Shield berjalan sepenuhnya di Cloudflare Workers. Setiap request yang mencurigakan
+diintersep sebelum menyentuh origin, lalu dibalas dengan response palsu yang masuk akal —
+lengkap dengan roast bernuansa lokal, watermark kriptografis, dan log serangan yang persisten.
+
+<CardGrid>
+  <Card title="Deception" icon="laptop">
+    Bot scanner dibuat percaya bahwa endpoint-nya rentan, lalu membuang waktu di jalur palsu.
+  </Card>
+  <Card title="Deterrence" icon="warning">
+    Attacker manual menerima pesan roasting sebagai sinyal tegas bahwa aktivitasnya terdeteksi.
+  </Card>
+  <Card title="Visibility" icon="magnifier">
+    Pemilik situs melihat siapa menyerang, kapan, dan dengan vektor apa — lewat Analytics Engine.
+  </Card>
+  <Card title="Edge-native" icon="rocket">
+    Tidak ada server, container, atau infrastruktur tambahan. Cukup Worker, KV, dan Analytics Engine.
+  </Card>
+</CardGrid>
+
+## Mulai dari mana?
+
+- **Baru pertama kali?** Baca [Pendahuluan](/mulai/pendahuluan/) lalu ikuti [Instalasi](/mulai/instalasi/).
+- **Ingin langsung mencoba?** [Mulai Cepat](/mulai/mulai-cepat/) memandu `npm run dev` dan beberapa `curl` uji serangan.
+- **Ingin tahu cara kerjanya?** [Arsitektur & Alur Request](/konsep/arsitektur/) menjelaskan urutan evaluasi dari awal sampai response.
+- **Mengubah aturan deteksi?** Mulai dari [Rule Engine](/konsep/rule-engine/) dan [Referensi rules.json](/konfigurasi/rules/).
+
+:::caution[Status Beta]
+Versi ini adalah rewrite arsitektur, bukan iterasi kecil. Rule engine dipindah ke build pipeline
+terkompilasi, ditambah circuit breaker, watermark kriptografis, dan logging dengan sampling.
+Beberapa fitur PRD — admin dashboard dan circuit breaker level 2 — belum diimplementasikan.
+Lihat [Batas Kemampuan](/referensi/batas-kemampuan/) sebelum memakai di produksi.
+:::
+
+## Ringkasan kemampuan
+
+| Kemampuan | Status |
+| --- | --- |
+| Deteksi SQLi, RCE, SSRF, LFI, XSS, recon berbasis skor | Tersedia |
+| Known-asset whitelist (path, prefix, IP, ekstensi statis) | Tersedia |
+| Fake payload + delay acak + roast | Tersedia |
+| Watermark `bs1-…` + rotasi salt via KV | Tersedia (skrip rotasi belum ada di repo, lihat catatan) |
+| Circuit breaker per IP (5 strike / 60 detik) | Tersedia |
+| Logging Analytics Engine dengan sampling | Tersedia (butuh binding) |
+| Admin dashboard + Cloudflare Access | Belum |
+| Known-attacker block 24 jam | Belum |

@@ -26,7 +26,12 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "kv:create": "wrangler kv namespace create BANGK_KV",
-    "salt:rotate": "node scripts/rotate-salt.cjs"
+    "salt:rotate": "node scripts/rotate-salt.cjs",
+    "docs:install": "npm --prefix docs install",
+    "docs:dev": "npm --prefix docs run dev",
+    "docs:build": "npm --prefix docs run build",
+    "docs:preview": "npm --prefix docs run preview",
+    "docs:deploy": "npm --prefix docs run build && wrangler pages deploy docs/dist --project-name bangk-shield-docs --branch main"
   },
   "dependencies": {
     "ajv": "^8.17.1"
@@ -39,9 +44,6 @@
   },
   "engines": {
     "node": ">=18"
-  },
-  "publishConfig": {
-  "registry": "https://npm.pkg.github.com"
   },
   "repository": {
     "type": "git",

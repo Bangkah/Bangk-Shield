@@ -17,6 +17,15 @@ compatibility_date = "2026-01-01"
 # routes = [
 #   { pattern = "yourdomain.com/*", zone_name = "yourdomain.com" }
 # ]
+#
+# Contoh deployment proyek ini (lihat
+# docs/src/content/docs/mulai/integrasi-cloudflare-pages.md):
+routes = [
+  { pattern = "bangk-shield.bangkah.tech/*", zone_name = "bangkah.tech" }
+]
+# lalu isi ORIGIN_URL = "https://bangk-shield-docs.pages.dev" di [vars].
+# Jangan memakai bangkah.tech/* atau *.bangkah.tech/*: apex disiapkan untuk
+# index project lain, dan wildcard akan menangkap semua subdomain project.
 
 # OPSI B: deploy sebagai subdomain workers.dev bawaan untuk testing cepat
 # (otomatis aktif kalau `routes` di atas dikosongkan, lalu `npm run deploy`).
@@ -66,7 +75,7 @@ dataset = "bangk_shield_events"
 # URL origin asli untuk trafik legit (WAJIB diisi kalau tidak pakai [assets]).
 # Tanpa ini, passthrough() tidak akan fetch apapun -- lihat catatan penting
 # di src/utils.js soal kenapa fetch(request) mentah berbahaya (infinite loop).
-ORIGIN_URL = ""
+ORIGIN_URL = "https://bangk-shield-docs.pages.dev"
 
 # Fallback watermark salt HANYA untuk dev lokal tanpa BANGK_KV. Di produksi,
 # salt sesungguhnya datang dari KV key "wm:salt:current" (lihat src/watermark.js)
